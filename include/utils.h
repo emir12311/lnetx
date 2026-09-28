@@ -1,0 +1,1 @@
+int in_range(int a, int x, int b);
