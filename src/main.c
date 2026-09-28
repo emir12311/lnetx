@@ -2,7 +2,7 @@
 
 int main(int argc, char* argv[])
 {
-    if (strcmp(argv[1], "recieve") == 0)
+    if (strcmp(argv[1], "receive") == 0)
     {
         if (server())
             return (1);
