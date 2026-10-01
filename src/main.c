@@ -44,7 +44,7 @@ static int	parse_args(const int argc, char* argv[], cmds* commands, send_opts* s
 			commands->send = 1;
 			send_options->ip = argv[2];
 			send_options->port = port_tmp;
-			send_options->message = argv[4];
+			send_options->path = argv[4];
 			return (0);
 		}
 		else
@@ -63,9 +63,10 @@ static int	parse_args(const int argc, char* argv[], cmds* commands, send_opts* s
 
 int	main(int argc, char* argv[])
 {
-	cmds commands;
-	send_opts send_options;
-
+	cmds		commands;
+	send_opts	send_options;
+	struct stat	st;
+	
 	if (parse_args(argc, argv, &commands, &send_options))
 		return (1);
 	if (commands.recv)
@@ -75,7 +76,13 @@ int	main(int argc, char* argv[])
 	}
 	if (commands.send)
 	{
-		if (client(send_options.ip, send_options.port, send_options.message))
+		if (lstat(argv[4], &st) == -1)
+		{
+			fprintf(stderr, "Passed path is invalid.\n");
+			return (1);
+		}
+		if (client(send_options.ip, send_options.port, send_options.path))
 			return (1);
 	}
+	return (0);
 }
