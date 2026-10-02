@@ -1,6 +1,7 @@
 #include "../include/lnetx.h"
 #include "../include/utils.h"
 #include "../lib/blake3/blake3.h"
+#include <unistd.h>
 
 static void	fill_spinner(char* spinner[])
 {
@@ -54,12 +55,12 @@ static int	receive_x_bytes(const int fd, const size_t x, char* buf)
 		got = recv(fd, buf + offset, x - offset, 0);
 		if (got == 0)
 		{
-			fprintf(stderr, "Client closed connection.\n");
+			fprintf(stderr, "✘ Client closed connection.\n");
 			return (-2);
 		}
 		if (got == -1)
 		{
-			fprintf(stderr, "Couldnt receive file.\n");
+			fprintf(stderr, "✘ Couldnt receive file.\n");
 			return (-1);
 		}
 		offset += (size_t)got;
@@ -78,7 +79,7 @@ static int	write_x_bytes(const int fd, const size_t x, char* buf)
 		written_bytes = write(fd, buf + offset, x - offset);
 		if (written_bytes == -1)
 		{
-			fprintf(stderr, "Couldnt write data.\n");
+			fprintf(stderr, "✘ Couldnt write data.\n");
 			return (-1);
 		}
 		offset += (size_t)written_bytes;
@@ -123,7 +124,7 @@ static int	receive_transfer(const int fd, char* path, uint64_t file_size, const 
 	file_fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 	if (file_fd == -1)
 	{
-		fprintf(stderr, "Couldnt open file.\n");
+		fprintf(stderr, "✘ Couldnt open file.\n");
 		return (1);
 	}
 	chk = -2;
@@ -137,27 +138,29 @@ static int	receive_transfer(const int fd, char* path, uint64_t file_size, const 
 			chk = receive_x_bytes(fd, remaining, buf);
 		if (chk == -1 || chk == -2)
 		{
-			fprintf(stderr, "Receiving file failed.\n");
+			fprintf(stderr, "✘ Receiving file failed.\n");
 			return (1);
 		}
 		chk_send = write_x_bytes(file_fd, (size_t)chk, buf);
 		if (chk_send == -1)
 		{
-			fprintf(stderr, "Writing file failed.\n");
+			fprintf(stderr, "✘ Writing file failed.\n");
 			return (1);
 		}
 		else if (chk_send == 1)
 			return (1);
+		print_progress(file_size - remaining, file_size);
 		remaining -= (uint64_t)chk;
+		usleep(10000);
 	}
-	printf("✓ Got file\n");
+	printf("\033[2K\033[1A\033[2K\r✓ Got file\n");
 	printf("... Integrity check:\n");
 	hash_file(path, file_hash_raw);
 	hash_to_pretty(file_hash_raw, file_hash);
 	printf("Original: %s\nReceived: %s\n", org_hash, file_hash);
 	if (strcmp(file_hash, org_hash) != 0)
 	{
-		printf("INTEGRITY FAILED.\n");
+		printf("✘ Integrity failed.\n");
 		return (1);
 	}
 	printf("✓ Integrity passed\n");
@@ -177,6 +180,7 @@ int	server(void)
 	int					server_fd;
 	int					client_fd;
 	int					load_value;
+	int					tmp;
 	socklen_t			client_size;
 	struct sockaddr_in	address;
 	struct pollfd		poll_cursor;
@@ -194,17 +198,19 @@ int	server(void)
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1)
 	{
-		fprintf(stderr, "Getting TCP socket failed.\n");
+		fprintf(stderr, "✘ Getting TCP socket failed.\n");
 		return (1);
 	}
 	if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) == -1)
 	{
-		fprintf(stderr, "Binding to TCP socket failed.\n");
+		fprintf(stderr, "✘ Binding to TCP socket failed.\n");
+		close(server_fd);
 		return (1);
 	}
 	if (listen(server_fd, 10) == -1)
 	{
-		fprintf(stderr, "Setting TCP socket to listen failed.\n");
+		fprintf(stderr, "✘ Setting TCP socket to listen failed.\n");
+		close(server_fd);
 		return (1);
 	}
 	poll_cursor.fd = server_fd;
@@ -212,20 +218,24 @@ int	server(void)
 	load_value = load_spin(&poll_cursor, "Waiting for connection...");
 	if (load_value == -1)
 	{
-		fprintf(stderr, "Polling connection failed.\n");
+		fprintf(stderr, "✘ Polling connection failed.\n");
+		close(server_fd);
 		return (1);
 	}
 	client_size = sizeof(address);
 	client_fd = accept(server_fd, (struct sockaddr *)&address, &client_size);
 	if (client_fd == -1)
 	{
-		fprintf(stderr, "Accepting client failed.\n");
+		fprintf(stderr, "✘ Accepting client failed.\n");
+		close(server_fd);
 		return (1); 
 	}
 	printf("\r\033[2K✓ Got connection\n");
 	if (get_metadata(client_fd, hash, file_name, &file_size) != 0)
 	{
-		fprintf(stderr, "Couldnt receive metadata.\n");
+		fprintf(stderr, "✘ Couldnt receive metadata.\n");
+		close(client_fd);
+		close(server_fd);
 		return (1);
 	}
 	bytes_to_pretty(file_size, file_size_buf);
@@ -234,24 +244,37 @@ int	server(void)
 	fflush(stdout);
 	if (fgets(buf, sizeof buf, stdin) == NULL)
 	{
-		fprintf(stderr, "fgets returned NULL");
+		fprintf(stderr, "✘ fgets returned NULL\n");
+		close(client_fd);
+		close(server_fd);
 		return (1);
 	}
 	if (strchr(buf, '\n') == NULL)
 		clean_stdin();
 	if (buf[0] == 'n' || buf[0] == 'N')
+	{
+		close(client_fd);
+		close(server_fd);
 		return (1);
+	}
 	if (get_home_dir(home_folder))
 	{
-		fprintf(stderr, "Couldnt get home folder.\n");
+		fprintf(stderr, "✘ Couldnt get home folder.\n");
+		close(client_fd);
+		close(server_fd);
 		return (1);
 	}
 	snprintf(downloads_folder, sizeof downloads_folder, "%s/Downloads/%s", home_folder, file_name);
-	if (receive_transfer(client_fd, downloads_folder, file_size, hash))
+	tmp = receive_transfer(client_fd, downloads_folder, file_size, hash);
+	if (tmp == 1)
 	{
-		fprintf(stderr, "Couldnt receive file.\n");
+		fprintf(stderr, "✘ Couldnt receive file.\n");
+		close(client_fd);
+		close(server_fd);
 		return (1);
 	}
+	if (tmp == 2)
+		return (1);
 	close(client_fd);
 	close(server_fd);
 	return (0);

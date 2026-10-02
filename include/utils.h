@@ -9,3 +9,5 @@ void hash_to_pretty(const uint8_t *hash, char *out);
 int hash_file(char* full_path, uint8_t* out_hash);
 
 int	get_home_dir(char* out_home_dir);
+
+void print_progress(uint64_t bytes_done, uint64_t total_bytes);

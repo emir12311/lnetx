@@ -98,3 +98,56 @@ int	get_home_dir(char* out_home_dir)
 	strcpy(out_home_dir, tmp);
 	return (0);
 }
+
+void	print_progress(uint64_t bytes_done, uint64_t total_bytes)
+{
+	static struct timespec	last_time;
+	static uint64_t			last_bytes;
+	static int				initialized;
+	struct timespec			now;
+	double					elapsed;
+	double					speed;
+	double					progress;
+	double					eta;
+	int						filled;
+	int						i;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (!initialized)
+	{
+		last_time = now;
+		last_bytes = bytes_done;
+		initialized = 1;
+		return ;
+	}
+	elapsed = (double)(now.tv_sec - last_time.tv_sec);
+	elapsed += (double)(now.tv_nsec - last_time.tv_nsec) / 1000000000.0;
+	if (elapsed < 0.08)
+		return ;
+	speed = (double)(bytes_done - last_bytes) / elapsed;
+	progress = (double)bytes_done / (double)total_bytes;
+	if (speed > 0.0)
+		eta = (double)(total_bytes - bytes_done) / speed;
+	else
+		eta = 0.0;
+	filled = (int)(progress * 30.0);
+
+	printf("\033[1A\033[2K\r");
+	printf("\033[2K[");
+	i = 0;
+	while (i < 30)
+	{
+		if (i < filled)
+			printf("█");
+		else
+			printf("░");
+		i++;
+	}
+	printf("] %3d%% %.1f KiB/s\n", (int)(progress * 100.0),
+		speed / 1024.0);
+	printf("\033[2KETA: %.1fs", eta);
+	fflush(stdout);
+
+	last_time = now;
+	last_bytes = bytes_done;
+}

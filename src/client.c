@@ -13,12 +13,12 @@ static int	send_x_bytes(const int fd, const size_t x, const char* buf)
 		sent = send(fd, buf + offset, x - offset, 0);
 		if (sent == 0)
 		{
-			fprintf(stderr, "Client closed connection.\n");
+			fprintf(stderr, "✘ Client closed connection.\n");
 			return (1);
 		}
 		if (sent == -1)
 		{
-			fprintf(stderr, "Couldnt send data.\n");
+			fprintf(stderr, "✘ Couldnt send data.\n");
 			return (-1);
 		}
 		offset += (size_t)sent;
@@ -39,7 +39,7 @@ static int	read_x_bytes(const int fd, const size_t x, char* out_buf)
 			return ((int)offset);
 		if (read_bytes == -1)
 		{
-			fprintf(stderr, "Couldnt read data.\n");
+			fprintf(stderr, "✘ Couldnt read data.\n");
 			return (-1);
 		}
 		offset += (size_t)read_bytes;
@@ -80,7 +80,7 @@ static int	start_transfer(const int fd, char* path, uint64_t file_size)
 	file_fd = open(path, O_RDONLY);
 	if (file_fd == -1)
 	{
-		fprintf(stderr, "Couldnt open file.\n");
+		fprintf(stderr, "✘ Couldnt open file.\n");
 		return (1);
 	}
 	chk = -2;
@@ -94,19 +94,18 @@ static int	start_transfer(const int fd, char* path, uint64_t file_size)
 			chk = read_x_bytes(file_fd, remaining, buf);
 		if (chk == -1)
 		{
-			fprintf(stderr, "Reading file failed.\n");
+			fprintf(stderr, "✘ Reading file failed.\n");
 			return (1);
 		}
-		printf("Read %d bytes, remaining before: %" PRIu64 "\n", chk, remaining);
 		chk_send = send_x_bytes(fd, (size_t)chk, buf);
 		if (chk_send == -1)
 		{
-			fprintf(stderr, "Sending file failed.\n");
+			fprintf(stderr, "✘ Sending file failed.\n");
 			return (1);
 		}
 		else if (chk_send == 1)
 			return (1);
-		printf("Sent %d bytes\n", chk);
+		print_progress(file_size - remaining, file_size);
 		remaining -= (uint64_t)chk;
 	}
 	close(file_fd);
@@ -131,60 +130,73 @@ int	client(const char* ip, const int port, const char* file)
 	tmp = inet_pton(AF_INET, ip, &address.sin_addr.s_addr);
 	if (tmp == 0)
 	{
-		fprintf(stderr, "Invalid IP\n");
+		fprintf(stderr, "✘ Invalid IP\n");
 		return (1);
 	}
 	if (tmp == -1)
 	{
-		fprintf(stderr, "Invalid IP range\n");
+		fprintf(stderr, "✘ Invalid IP range\n");
 		return (1);
 	}
 	client_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (client_fd == -1)
 	{
-		fprintf(stderr, "Getting TCP socket failed.\n");
+		fprintf(stderr, "✘ Getting TCP socket failed.\n");
 		return (1);
 	}
 	if (connect(client_fd, (struct sockaddr *)&address, sizeof address) == -1)
 	{
-		fprintf(stderr, "Connection to server failed\n");
+		fprintf(stderr, "✘ Connection to server failed\n");
+		close(client_fd);
 		return (1);
 	}
+	printf("✓ Connected\n");
 	if (realpath(file, path_buf) == NULL)
 	{
-		fprintf(stderr, "Couldnt get file path\n");
+		fprintf(stderr, "✘ Couldnt get file path\n");
+		close(client_fd);
 		return (1);
 	}
 	slash_ptr = strrchr(path_buf, '/');
 	if (slash_ptr == NULL)
 	{
-		fprintf(stderr, "Path is invalid\n");
+		fprintf(stderr, "✘ Path is invalid\n");
+		close(client_fd);
 		return (1);	
 	}
 	strcpy(file_name, slash_ptr + 1);
+	printf("Hashing file..\n");
 	if (hash_file(path_buf, hash))
 	{
-		fprintf(stderr, "Couldnt hash file.\n");
+		fprintf(stderr, "✘ Couldnt hash file.\n");
+		close(client_fd);
 		return (1);	
 	}
+	printf("\033[1A\033[2K\r✓ Hashed file\n");
 	if (stat(path_buf, &st) == -1)
 	{
-		fprintf(stderr, "Couldnt call stat() on file\n");
+		fprintf(stderr, "✘ Couldnt call stat() on file\n");
+		close(client_fd);
 		return (1);		
 	}
 	hash_to_pretty(hash, hash_buf);
-	printf("%s\n", file_name);
 	snprintf(file_size_buf, sizeof(file_size_buf), "%" PRIu64, st.st_size);
+	printf("Sending metadata..\n");
 	if (send_metadata(client_fd, file_name, file_size_buf, hash_buf) != 0)
 	{
-		fprintf(stderr, "Sending metadata failed\n");
+		fprintf(stderr, "\033[1A\033[2K\r✘ Sending metadata failed\n");
+		close(client_fd);
 		return (1);
 	}
+	printf("\033[1A\033[2K\r✓ Sent metadata\n");
+	printf("Sending file..\n");
 	if (start_transfer(client_fd, path_buf, strtoull(file_size_buf, NULL, 10)))
 	{
-		fprintf(stderr, "Transfer failed.\n");
+		fprintf(stderr, "✘ Transfer failed.\n");
+		close(client_fd);
 		return (1);
 	}
+	printf("\033[1A\033[2K\r✓ Sent file\n");
 	close(client_fd);
 	return (0);
 }

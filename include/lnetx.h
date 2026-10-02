@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <string.h>
 #include <poll.h>
+#include <time.h>
 #include <inttypes.h>
 
 typedef struct
