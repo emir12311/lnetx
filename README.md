@@ -6,7 +6,7 @@
 
 <br>
 
-<img src="lnetx-logo.png" alt="lnetx logo" width="180">
+<img src="lnetx-logo.png" alt="lnetx logo" width="260">
 	
 <br>
 
