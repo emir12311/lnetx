@@ -1,7 +1,6 @@
 #include "../include/lnetx.h"
 #include "../include/utils.h"
 #include "../lib/blake3/blake3.h"
-#include <unistd.h>
 
 static void	fill_spinner(char* spinner[])
 {
@@ -102,16 +101,42 @@ static int	get_metadata(const int fd, char* out_hash, char* out_file_name, uint6
 		return (-1);
 	else if (x == -2)
 		return (1);
+	if (memchr(file_size_buf, '\0', 21) == NULL)
+		return (1);
 	x = receive_x_bytes(fd, 65, out_hash);
 	if (x == -1)
 		return (-1);
 	else if (x == -2)
 		return (1);
+	if (memchr(out_hash, '\0', 65) == NULL)
+		return (1);
 	*out_file_size = strtoull(file_size_buf, NULL, 10);
 	return (0);
 }
 
-static int	receive_transfer(const int fd, char* path, uint64_t file_size, const char* org_hash)
+static int	is_valid_file_name(const char* file_name)
+{
+	int	i;
+
+	if (memchr(file_name, '\0', NAME_MAX + 1) == NULL)
+		return (0);
+	if (file_name[0] == '\0')
+		return (0);
+	if (strchr(file_name, '/') != NULL)
+		return (0);
+	if (strcmp(file_name, ".") == 0 || strcmp(file_name, "..") == 0)
+		return (0);
+	i = 0;
+	while (file_name[i] != '\0')
+	{
+		if ((unsigned char)file_name[i] < 0x20)
+			return (0);
+		i++;
+	}
+	return (1);
+}
+
+static int	receive_transfer(const int fd, char* tmp_path, char* path, uint64_t file_size, const char* org_hash)
 {
 	int				file_fd;
 	int				chk;
@@ -121,7 +146,7 @@ static int	receive_transfer(const int fd, char* path, uint64_t file_size, const 
 	char			file_hash[65];
 	char			buf[65536];
 
-	file_fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+	file_fd = open(tmp_path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 	if (file_fd == -1)
 	{
 		fprintf(stderr, "✘ Couldnt open file.\n");
@@ -131,40 +156,48 @@ static int	receive_transfer(const int fd, char* path, uint64_t file_size, const 
 	chk_send = -2;
 	remaining = file_size;
 	while (remaining != 0)
-	{		
+	{
 		if (remaining > sizeof buf)
 			chk = receive_x_bytes(fd, sizeof buf, buf);
-		else if (remaining < sizeof buf)
+		else
 			chk = receive_x_bytes(fd, remaining, buf);
 		if (chk == -1 || chk == -2)
 		{
 			fprintf(stderr, "✘ Receiving file failed.\n");
+			close(file_fd);
+			unlink(tmp_path);
 			return (1);
 		}
 		chk_send = write_x_bytes(file_fd, (size_t)chk, buf);
 		if (chk_send == -1)
 		{
 			fprintf(stderr, "✘ Writing file failed.\n");
+			close(file_fd);
+			unlink(tmp_path);
 			return (1);
 		}
-		else if (chk_send == 1)
-			return (1);
 		print_progress(file_size - remaining, file_size);
 		remaining -= (uint64_t)chk;
-		usleep(10000);
 	}
 	printf("\033[2K\033[1A\033[2K\r✓ Got file\n");
 	printf("... Integrity check:\n");
-	hash_file(path, file_hash_raw);
+	hash_file(tmp_path, file_hash_raw);
 	hash_to_pretty(file_hash_raw, file_hash);
 	printf("Original: %s\nReceived: %s\n", org_hash, file_hash);
 	if (strcmp(file_hash, org_hash) != 0)
 	{
 		printf("✘ Integrity failed.\n");
+		close(file_fd);
+		unlink(tmp_path);
 		return (1);
 	}
 	printf("✓ Integrity passed\n");
 	close(file_fd);
+	if (rename(tmp_path, path) != 0)
+	{
+		fprintf(stderr, "✘ Renaming file failed.\n");
+		return (1);
+	}
 	return (0);
 }
 
@@ -185,20 +218,29 @@ int	server(void)
 	struct sockaddr_in	address;
 	struct pollfd		poll_cursor;
 	char				file_name[NAME_MAX + 1];
-	char				hash[65]; // normal 256 bit hash = 32 bytes = 64 bytes as chars + null terminator 
+	char				hash[65]; // normal 256 bit hash = 32 bytes = 64 bytes as chars + null terminator
 	char				file_size_buf[32];
 	char				buf[32];
+	char				file_path[PATH_MAX];
+	char				tmp_path[PATH_MAX];
 	char				downloads_folder[PATH_MAX];
 	char				home_folder[PATH_MAX];
 	uint64_t			file_size;
-	
+
 	address.sin_family = AF_INET;
-	address.sin_port = htons(4000);
+	address.sin_port = htons(PORT);
 	address.sin_addr.s_addr = INADDR_ANY;
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1)
 	{
 		fprintf(stderr, "✘ Getting TCP socket failed.\n");
+		return (1);
+	}
+	tmp = 1;
+	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &tmp, sizeof tmp) == -1)
+	{
+		fprintf(stderr, "✘ Setting socket options failed.\n");
+		close(server_fd);
 		return (1);
 	}
 	if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) == -1)
@@ -228,12 +270,19 @@ int	server(void)
 	{
 		fprintf(stderr, "✘ Accepting client failed.\n");
 		close(server_fd);
-		return (1); 
+		return (1);
 	}
 	printf("\r\033[2K✓ Got connection\n");
 	if (get_metadata(client_fd, hash, file_name, &file_size) != 0)
 	{
 		fprintf(stderr, "✘ Couldnt receive metadata.\n");
+		close(client_fd);
+		close(server_fd);
+		return (1);
+	}
+	if (!is_valid_file_name(file_name))
+	{
+		fprintf(stderr, "✘ Invalid file name.\n");
 		close(client_fd);
 		close(server_fd);
 		return (1);
@@ -264,8 +313,17 @@ int	server(void)
 		close(server_fd);
 		return (1);
 	}
-	snprintf(downloads_folder, sizeof downloads_folder, "%s/Downloads/%s", home_folder, file_name);
-	tmp = receive_transfer(client_fd, downloads_folder, file_size, hash);
+	snprintf(downloads_folder, sizeof downloads_folder, "%s/Downloads", home_folder);
+	if (mkdir_p(downloads_folder))
+	{
+		fprintf(stderr, "✘ Couldnt create Downloads folder.\n");
+		close(client_fd);
+		close(server_fd);
+		return (1);
+	}
+	snprintf(file_path, sizeof file_path, "%s/%s", downloads_folder, file_name);
+	snprintf(tmp_path, sizeof tmp_path, "%s/%.*s.part", downloads_folder, NAME_MAX - 5, file_name);
+	tmp = receive_transfer(client_fd, tmp_path, file_path, file_size, hash);
 	if (tmp == 1)
 	{
 		fprintf(stderr, "✘ Couldnt receive file.\n");

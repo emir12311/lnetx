@@ -151,3 +151,66 @@ void	print_progress(uint64_t bytes_done, uint64_t total_bytes)
 	last_time = now;
 	last_bytes = bytes_done;
 }
+
+int	mkdir_p(const char* full_path)
+{
+	const char*	slash_ptr;
+	int			i;
+	int			d;
+	int			n;
+	char		prev_buf[PATH_MAX];
+	char		aft_buf[PATH_MAX];
+	char		path_buf[PATH_MAX];
+
+	memset(&prev_buf, 0, sizeof prev_buf);
+	memset(&aft_buf, 0, sizeof aft_buf);
+	memset(&path_buf, 0, sizeof path_buf);
+	slash_ptr = &full_path[0];
+	if (slash_ptr[0] == '/')
+	{
+		if (mkdir("/", 0755) != 0)
+		{
+			if (errno != EEXIST)
+			{
+				fprintf(stderr, "Couldnt make directory. Check permissions");
+				return (1);
+			}
+		}
+		strcpy(prev_buf, "/");
+	}
+	slash_ptr++;
+	i = 0;
+	while (strchr(slash_ptr + i, '/') != NULL)
+	{
+		d = 0;
+		for (; slash_ptr[i] != '/'; i++, d++)
+			aft_buf[d] = slash_ptr[i];
+		n = snprintf(path_buf, sizeof path_buf, "%s%s", prev_buf, aft_buf);
+		if (n < 0 || (size_t)n >= sizeof path_buf)
+		{
+			fprintf(stderr, "Couldnt make directory, path too long.");
+			return (1);
+		}
+		if (mkdir(path_buf, 0755) != 0)
+		{
+			if (errno != EEXIST)
+			{
+				if (n < 0 || (size_t)n >= sizeof path_buf)
+					return (1);
+			}
+		}
+		i++;
+		path_buf[i] = '/';
+		strcpy(prev_buf, path_buf);
+		memset(&aft_buf, 0, sizeof aft_buf);
+	}
+	if (mkdir(full_path, 0755) != 0)
+	{
+		if (errno != EEXIST)
+		{
+			fprintf(stderr, "Couldnt make directory. Check permissions");
+			return (1);
+		}
+	}
+	return (0);
+}

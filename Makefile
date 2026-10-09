@@ -1,4 +1,4 @@
-SRC = src/main.c src/server.c src/client.c lib/utils.c lib/blake3/blake3.c lib/blake3/blake3_portable.c lib/blake3/blake3_dispatch.c
+SRC = src/main.c src/server.c src/alias.c src/client.c lib/utils.c lib/blake3/blake3.c lib/blake3/blake3_portable.c lib/blake3/blake3_dispatch.c
 
 NAME = lnetx
 

@@ -90,7 +90,7 @@ static int	start_transfer(const int fd, char* path, uint64_t file_size)
 	{
 		if (remaining > sizeof buf)
 			chk = read_x_bytes(file_fd, sizeof buf, buf);
-		else if (remaining < sizeof buf)
+		else
 			chk = read_x_bytes(file_fd, remaining, buf);
 		if (chk == -1)
 		{
@@ -162,7 +162,7 @@ int	client(const char* ip, const int port, const char* file)
 	{
 		fprintf(stderr, "✘ Path is invalid\n");
 		close(client_fd);
-		return (1);	
+		return (1);
 	}
 	strcpy(file_name, slash_ptr + 1);
 	printf("Hashing file..\n");
@@ -170,14 +170,14 @@ int	client(const char* ip, const int port, const char* file)
 	{
 		fprintf(stderr, "✘ Couldnt hash file.\n");
 		close(client_fd);
-		return (1);	
+		return (1);
 	}
 	printf("\033[1A\033[2K\r✓ Hashed file\n");
 	if (stat(path_buf, &st) == -1)
 	{
 		fprintf(stderr, "✘ Couldnt call stat() on file\n");
 		close(client_fd);
-		return (1);		
+		return (1);
 	}
 	hash_to_pretty(hash, hash_buf);
 	snprintf(file_size_buf, sizeof(file_size_buf), "%" PRIu64, st.st_size);
