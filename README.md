@@ -100,9 +100,11 @@ The receiver listens on TCP port `56389` and saves accepted files to `~/Download
 
 1. The sender hashes the file and sends its name, size and BLAKE3 hash.
 2. The receiver shows the metadata and asks you to confirm.
-3. The file is sent in 64 KiB chunks and written as `<name>.part`.
-4. The received file is hashed and compared with the sender's hash.
-5. If the hashes match, the file is renamed into `~/Downloads`. If they don't, it is deleted.
+3. On `n`, the receiver replies `N` and the sender stops without sending the file.
+4. On `y`, the receiver replies `G` and the file is sent in 64 KiB chunks, written as `<name>.part`.
+5. The received file is hashed and compared with the sender's hash.
+6. If the hashes match and no file of that name already exists, it is renamed into `~/Downloads` and the receiver replies `K`. Otherwise it is deleted and the receiver replies `E`.
+7. The sender only reports success once it receives the `K`.
 
 In short:
 
@@ -110,12 +112,14 @@ In short:
 File
  │
  ├── Metadata ──→ name + size + BLAKE3 hash ──→ Receiver
+ │                                                    │
+ │   ←── N / G  (declined / go) ──────────────────────┘
  │
  └── 64 KiB chunks ──→ Transfer ──→ Write <name>.part
                                       │
-                                      ├── Hash matches ──→ Rename → ~/Downloads
+                                      ├── Hash matches ──→ Rename → ~/Downloads ──→ K
                                       │
-                                      └── Hash differs ──→ Delete
+                                      └── Hash differs ──→ Delete ──→ E
 ```
 
 That's basically it.
