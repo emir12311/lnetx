@@ -12,10 +12,16 @@
 #include <string.h>
 #include <poll.h>
 #include <errno.h>
+#include <signal.h>
 #include <time.h>
 #include <inttypes.h>
 
 #define PORT 56389
+
+#define GO		'G'
+#define DECLINE	'N'
+#define OK		'K'
+#define ERR		'E'
 
 typedef struct
 {

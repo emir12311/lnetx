@@ -36,14 +36,15 @@ static int	is_valid_ip(const char* ip)
 static int	is_valid_alias_line(const char *line)
 {
 	const char*		equals;
-	char			ip[32];
+	char			ip[INET_ADDRSTRLEN];
 	char*			new_line;
 	size_t			alias_len;
 
 	equals = strchr(line, '=');
 	if (equals == NULL)
 		return (0);
-	strcpy(ip, equals + 1);
+	if (snprintf(ip, sizeof ip, "%s", equals + 1) >= (int)sizeof ip)
+		return (0);
 	new_line = strchr(ip, '\n');
 	if (new_line != NULL)
 		*new_line = '\0';

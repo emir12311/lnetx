@@ -76,6 +76,7 @@ int hash_file(char* full_path, uint8_t* out_hash)
 		if (read_bytes == -1)
 		{
 			fprintf(stderr, "Couldnt read from file.\n");
+			close(fd);
 			return (1);
 		}
 		blake3_hasher_update(&hasher, bytes, (size_t)read_bytes);
@@ -191,13 +192,10 @@ int	mkdir_p(const char* full_path)
 			fprintf(stderr, "Couldnt make directory, path too long.");
 			return (1);
 		}
-		if (mkdir(path_buf, 0755) != 0)
+		if (mkdir(path_buf, 0755) != 0 && errno != EEXIST)
 		{
-			if (errno != EEXIST)
-			{
-				if (n < 0 || (size_t)n >= sizeof path_buf)
-					return (1);
-			}
+			fprintf(stderr, "✘ Couldnt make directory. Check permissions\n");
+			return (1);
 		}
 		i++;
 		path_buf[i] = '/';

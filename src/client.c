@@ -18,6 +18,8 @@ static int	send_x_bytes(const int fd, const size_t x, const char* buf)
 		}
 		if (sent == -1)
 		{
+			if (errno == EINTR)
+				continue ;
 			fprintf(stderr, "✘ Couldnt send data.\n");
 			return (-1);
 		}
@@ -39,6 +41,8 @@ static int	read_x_bytes(const int fd, const size_t x, char* out_buf)
 			return ((int)offset);
 		if (read_bytes == -1)
 		{
+			if (errno == EINTR)
+				continue ;
 			fprintf(stderr, "✘ Couldnt read data.\n");
 			return (-1);
 		}
@@ -92,7 +96,7 @@ static int	start_transfer(const int fd, char* path, uint64_t file_size)
 			chk = read_x_bytes(file_fd, sizeof buf, buf);
 		else
 			chk = read_x_bytes(file_fd, remaining, buf);
-		if (chk == -1)
+		if (chk <= 0)
 		{
 			fprintf(stderr, "✘ Reading file failed.\n");
 			return (1);
@@ -119,23 +123,20 @@ int	client(const char* ip, const int port, const char* file)
 	struct sockaddr_in	address;
 	struct stat			st;
 	char				path_buf[PATH_MAX];
-	char				file_name[NAME_MAX + 1];
-	char				file_size_buf[21]; // explained in server.c
+	char				file_name[NAME_MAX + 1] = {0};
+	char				file_size_buf[21] = {0}; // explained in server.c
 	char*				slash_ptr;
 	char				hash_buf[65]; // converted to a string, the hash is 64 bytes, + null terminator
 	uint8_t				hash[33]; // 32 bytes of the hash + null terminator
+	char				status;
 
+	signal(SIGPIPE, SIG_IGN);
 	address.sin_family = AF_INET;
 	address.sin_port = htons((uint16_t)port);
 	tmp = inet_pton(AF_INET, ip, &address.sin_addr.s_addr);
-	if (tmp == 0)
+	if (tmp != 1)
 	{
 		fprintf(stderr, "✘ Invalid IP\n");
-		return (1);
-	}
-	if (tmp == -1)
-	{
-		fprintf(stderr, "✘ Invalid IP range\n");
 		return (1);
 	}
 	client_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -189,6 +190,12 @@ int	client(const char* ip, const int port, const char* file)
 		return (1);
 	}
 	printf("\033[1A\033[2K\r✓ Sent metadata\n");
+	if (read_x_bytes(client_fd, 1, &status) != 1 || status != GO)
+	{
+		fprintf(stderr, "✘ Receiver declined or aborted.\n");
+		close(client_fd);
+		return (1);
+	}
 	printf("Sending file..\n");
 	if (start_transfer(client_fd, path_buf, strtoull(file_size_buf, NULL, 10)))
 	{
@@ -196,7 +203,13 @@ int	client(const char* ip, const int port, const char* file)
 		close(client_fd);
 		return (1);
 	}
-	printf("\033[1A\033[2K\r✓ Sent file\n");
+	if (read_x_bytes(client_fd, 1, &status) != 1 || status != OK)
+	{
+		fprintf(stderr, "✘ Receiver did not confirm the file\n");
+		close(client_fd);
+		return (1);
+	}
+	printf("\033[1A\033[2K\r✓ Receiver saved the file\n");
 	close(client_fd);
 	return (0);
 }

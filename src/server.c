@@ -59,6 +59,8 @@ static int	receive_x_bytes(const int fd, const size_t x, char* buf)
 		}
 		if (got == -1)
 		{
+			if (errno == EINTR)
+				continue ;
 			fprintf(stderr, "✘ Couldnt receive file.\n");
 			return (-1);
 		}
@@ -78,6 +80,8 @@ static int	write_x_bytes(const int fd, const size_t x, char* buf)
 		written_bytes = write(fd, buf + offset, x - offset);
 		if (written_bytes == -1)
 		{
+			if (errno == EINTR)
+				continue ;
 			fprintf(stderr, "✘ Couldnt write data.\n");
 			return (-1);
 		}
@@ -89,6 +93,7 @@ static int	write_x_bytes(const int fd, const size_t x, char* buf)
 static int	get_metadata(const int fd, char* out_hash, char* out_file_name, uint64_t* out_file_size)
 {
 	char		file_size_buf[21]; // size of the max numbers in 64 bit unsigned integer as chars + 1 for the null terminator
+	char*		end;
 	int			x;
 
 	x = receive_x_bytes(fd, 256, out_file_name);
@@ -110,7 +115,10 @@ static int	get_metadata(const int fd, char* out_hash, char* out_file_name, uint6
 		return (1);
 	if (memchr(out_hash, '\0', 65) == NULL)
 		return (1);
-	*out_file_size = strtoull(file_size_buf, NULL, 10);
+	errno = 0;
+	*out_file_size = strtoull(file_size_buf, &end, 10);
+	if (file_size_buf[0] == '\0' || *end != '\0' || errno == ERANGE)
+		return (1);
 	return (0);
 }
 
@@ -181,7 +189,13 @@ static int	receive_transfer(const int fd, char* tmp_path, char* path, uint64_t f
 	}
 	printf("\033[2K\033[1A\033[2K\r✓ Got file\n");
 	printf("... Integrity check:\n");
-	hash_file(tmp_path, file_hash_raw);
+	if (hash_file(tmp_path, file_hash_raw))
+	{
+		fprintf(stderr, "✘ Hashing received file failed.\n");
+		close(file_fd);
+		unlink(tmp_path);
+		return (1);
+	}
 	hash_to_pretty(file_hash_raw, file_hash);
 	printf("Original: %s\nReceived: %s\n", org_hash, file_hash);
 	if (strcmp(file_hash, org_hash) != 0)
@@ -193,9 +207,16 @@ static int	receive_transfer(const int fd, char* tmp_path, char* path, uint64_t f
 	}
 	printf("✓ Integrity passed\n");
 	close(file_fd);
+	if (access(path, F_OK) == 0)
+	{
+		fprintf(stderr, "✘ '%s' already exists, not overwriting.\n", path);
+		unlink(tmp_path);
+		return (1);
+	}
 	if (rename(tmp_path, path) != 0)
 	{
 		fprintf(stderr, "✘ Renaming file failed.\n");
+		unlink(tmp_path);
 		return (1);
 	}
 	return (0);
@@ -226,7 +247,9 @@ int	server(void)
 	char				downloads_folder[PATH_MAX];
 	char				home_folder[PATH_MAX];
 	uint64_t			file_size;
+	char				status;
 
+	signal(SIGPIPE, SIG_IGN);
 	address.sin_family = AF_INET;
 	address.sin_port = htons(PORT);
 	address.sin_addr.s_addr = INADDR_ANY;
@@ -302,6 +325,8 @@ int	server(void)
 		clean_stdin();
 	if (buf[0] == 'n' || buf[0] == 'N')
 	{
+		status = DECLINE;
+		write_x_bytes(client_fd, 1, &status);
 		close(client_fd);
 		close(server_fd);
 		return (1);
@@ -323,7 +348,19 @@ int	server(void)
 	}
 	snprintf(file_path, sizeof file_path, "%s/%s", downloads_folder, file_name);
 	snprintf(tmp_path, sizeof tmp_path, "%s/%.*s.part", downloads_folder, NAME_MAX - 5, file_name);
+	status = GO;
+	if (write_x_bytes(client_fd, 1, &status) != 1)
+	{
+		fprintf(stderr, "✘ Couldnt notify sender.\n");
+		close(client_fd);
+		close(server_fd);
+		return (1);
+	}
 	tmp = receive_transfer(client_fd, tmp_path, file_path, file_size, hash);
+	status = OK;
+	if (tmp != 0)
+		status = ERR;
+	write_x_bytes(client_fd, 1, &status);
 	if (tmp == 1)
 	{
 		fprintf(stderr, "✘ Couldnt receive file.\n");
@@ -331,8 +368,6 @@ int	server(void)
 		close(server_fd);
 		return (1);
 	}
-	if (tmp == 2)
-		return (1);
 	close(client_fd);
 	close(server_fd);
 	return (0);

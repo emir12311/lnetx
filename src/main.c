@@ -56,12 +56,17 @@ static int	parse_args(int argc, char* argv[], cmds* commands, send_opts* send_op
 			return (1);
 		}
 		commands->send = 1;
-		strcpy(send_options->path, argv[3]);
+		if (snprintf(send_options->path, sizeof send_options->path, "%s",
+				argv[3]) >= (int)sizeof send_options->path)
+		{
+			fprintf(stderr, "✘ Path is too long.\n");
+			return (1);
+		}
 		if (inet_pton(AF_INET, argv[2], &addr) != 1)
 		{
 			if (alias(argv[2], out_ip, 2))
 			{
-				fprintf(stderr, "✘ Invalid IP / Alias");
+				fprintf(stderr, "✘ Invalid IP / Alias\n");
 				return (1);
 			}
 			strcpy(send_options->ip, out_ip);
@@ -111,11 +116,13 @@ static int	parse_args(int argc, char* argv[], cmds* commands, send_opts* send_op
 
 int	main(int argc, char* argv[])
 {
-	cmds		commands;
-	send_opts	send_options;
-	alias_opts	alias_options;
+	cmds		commands = {0};
+	send_opts	send_options = {0};
+	alias_opts	alias_options = {0};
 	struct stat	st;
 
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 	if (parse_args(argc, argv, &commands, &send_options, &alias_options))
 		return (1);
 	if (commands.recv)
